@@ -1,0 +1,111 @@
+---
+# tasks file for pxeserver
+
+- name: Install mysql repos
+  block:
+    - copy: 
+        src: "mysql80-community-release-el7-1.noarch.rpm"
+        dest: /tmp/mysql80.rpm
+    - yum:
+        name: /tmp/mysql80.rpm
+        state: present
+
+- name: Install packages
+  yum:
+    name:
+      - httpd 
+      - php 
+      - php-common
+      - php-cli 
+      - php-ldap 
+      - mysql-server
+      - php-mysql 
+      - php-process 
+      - tftp-server 
+      - dhcp
+  become: yes
+
+- name: Extract One Click Kick from file
+  block:
+    - file:
+        path: /var/lib/ock
+        state: directory
+    - unarchive:
+        src: ock-1.20.tar.gz
+        dest: /var/lib/ock
+        extra_opts: "--strip-components=1"
+
+- name: Delete folders from tftpserver
+  file:
+    path: /tftpboot
+    state: absent
+
+- name: link OCK tftpboot
+  file:
+    state: link
+    src: /var/lib/ock/tftpboot 
+    dest: /tftpboot
+    owner: apache
+
+- name: link OCK tftpboot
+  file:
+    mode: 777
+    path: /var/lib/ock/htdocs/conf
+
+- name: Change permissions for /etc/dhcp/
+  file:
+    mode: 755
+    owner: apache
+    path: /etc/dhcp/.
+
+- name: Change owner for /etc/dhcp/dhcpd.conf
+  file:
+    owner: apache
+    path: /etc/dhcp/dhcpd.conf
+
+- name: Ensure Service are always running
+  service:
+    name: "{{ item }}"
+    state: started
+    enabled: true
+  with_items:
+    - httpd
+    - tftp
+    - mysqld
+    - xinetd
+    - dhcpd
+
+- name: httpd configuration
+  blockinfile:
+    path: /etc/httpd/conf/httpd.conf
+    block: |
+      #
+      # Alias the web directory and set options
+      #
+      Alias /ock /var/lib/ock/htdocs
+
+      <Directory "/var/lib/ock/htdocs">
+          Options -Indexes +FollowSymLinks +MultiViews
+          AllowOverride All
+          Require all granted
+      </Directory>
+      
+      #
+      # Alias the tftpboot directory and set options
+      #
+      Alias /ockimg /var/lib/ock/tftpboot/img
+      
+      <Directory "/var/lib/ock/tftpboot/img">
+          Options Indexes FollowSymLinks
+          AllowOverride None
+          Require all granted
+      </Directory>
+  notify: restart httpd
+
+- name: adding apache user to sudoers
+  become: yes
+  lineinfile:
+    state: present
+    line: "apache ALL=(ALL) NOPASSWD: /sbin/service, /etc/init.d/dhcpd, /usr/sbin/dhcpd, /bin/kill, /bin/rm"
+    path: /etc/sudoers
+  tags: sudoers

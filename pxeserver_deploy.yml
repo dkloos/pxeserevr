@@ -1,0 +1,4 @@
+---
+- hosts: pxeservers
+  roles:
+     - pxeserver
